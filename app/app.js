@@ -10,7 +10,7 @@ server.listen(process.env.PORT || 4000);
 
 app.use(express.static(path.resolve(path.join(__dirname, '/../public'))));
 app.get('/', function (req, res) { res.sendfile(path.resolve(__dirname + '/../public/index.html')); });
-app.get('/host', function (req, res) { res.sendfile(path.resolve(__dirname + '/../public/server-flip1.html')); });
+app.get('/host', function (req, res) { res.sendfile(path.resolve(__dirname + '/../public/server.html')); });
 app.get('/join', function (req, res) { res.sendfile(path.resolve(__dirname + '/../public/client.html')); });
 app.get('/systeminfo', function (req, res) {
     res.json({
@@ -41,6 +41,7 @@ var sessionStats = {
     oldestSession: null
 };
 var sessions = {};
+var hostSettings = {};
 
 io.sockets.on('connection', function (socket) {
 
@@ -48,12 +49,13 @@ io.sockets.on('connection', function (socket) {
     console.log("connection: " + socket.id);
 
 
-    socket.on('bindHost', function (data) {
+    socket.on('bindHost', function (data, callback) {
         console.log(" ================================================");
         console.log("bindHost: " + data.sid);
         socket.sid = data.sid;
         socket.uid = "HOST";
         socket.join(data.sid);
+        hostSettings[socket.sid] = data.settings;
 
         if (!(data.sid in sessions)) {
             console.log("creating new session: " + data.sid);
@@ -70,9 +72,13 @@ io.sockets.on('connection', function (socket) {
 
         sessions[data.sid].hostSocket = socket;
         sendDumpToHost(data.sid);
+
+        if (callback) {
+            callback();
+        }
     });
 
-    socket.on('bindUser', function(data) {
+    socket.on('bindUser', function(data, callback) {
         console.log(" ================================================");
         console.log("bindUser: " + data.username + " to session: " + data.sid);
         socket.sid = data.sid;
@@ -106,11 +112,15 @@ io.sockets.on('connection', function (socket) {
         console.log(u);
         u.socket = socket;
 
-        socket.emit('loggedIn');
+        socket.emit('loggedIn', hostSettings[socket.sid]);
         sendDumpToHost(data.sid);
+
+        if (callback) {
+            callback();
+        }
     });
 
-    socket.on('disconnect', function() {
+    socket.on('disconnect', function(callback) {
         console.log(" ================================================");
         console.log("disconnect: " + socket.uid);
 
@@ -124,9 +134,13 @@ io.sockets.on('connection', function (socket) {
         }
 
         sendDumpToHost(socket.sid);
+
+        if (callback) {
+            callback();
+        }
     });
 
-    socket.on("reset", function() {
+    socket.on("reset", function(callback) {
         console.log(" ================================================");
         console.log("reset: " + socket.sid);
 
@@ -139,9 +153,13 @@ io.sockets.on('connection', function (socket) {
             io.sockets.in(socket.sid).emit('reset');
             sendDumpToHost(socket.sid);
         }
+
+        if (callback) {
+            callback();
+        }
     });
 
-    socket.on("vote", function(value) {
+    socket.on("vote", function(value, callback) {
         console.log(" ================================================");
         console.log("vote: " + socket.uid);
 
@@ -151,9 +169,13 @@ io.sockets.on('connection', function (socket) {
                 sessions[socket.sid].users[socket.uid].orgVote = value;
             sendDumpToHost(socket.sid);
         }
+
+        if (callback) {
+            callback();
+        }
     });
 
-    socket.on("leave", function() {
+    socket.on("leave", function(callback) {
         console.log(" ================================================");
         console.log("leave: " + socket.uid);
 
@@ -161,9 +183,13 @@ io.sockets.on('connection', function (socket) {
             delete sessions[socket.sid].users[socket.uid];
             sendDumpToHost(socket.sid);
         }
+
+        if (callback) {
+            callback();
+        }
     });
 
-    socket.on("kick", function(uid) {
+    socket.on("kick", function(uid, callback) {
         console.log(" ================================================");
         console.log("kick: " + uid);
 
@@ -173,7 +199,26 @@ io.sockets.on('connection', function (socket) {
             delete sessions[socket.sid].users[uid];
             sendDumpToHost(socket.sid);
         }
+
+        if (callback) {
+            callback();
+        }
     });
+
+    socket.on("updateSettings", function (settings, callback) {
+        console.log(" ================================================");
+        console.log("updateSettings: " + JSON.stringify(settings));
+        
+        hostSettings[socket.sid] = settings;
+        if (sessions[socket.sid]) {
+            io.sockets.in(socket.sid).emit('updateSettings', settings);
+            sendDumpToHost(socket.sid);
+        }
+
+        if (callback) {
+            callback();
+        }
+    })
 
     var sendDumpToHost = function(sid) {
         var s = sessions[sid];
